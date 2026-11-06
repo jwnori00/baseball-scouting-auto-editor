@@ -1,0 +1,14 @@
+[
+  {
+    "file": "BaseballScoutingEditor.exe",
+    "status": "NotSigned"
+  },
+  {
+    "file": "ffmpeg.exe",
+    "status": "NotSigned"
+  },
+  {
+    "file": "ffprobe.exe",
+    "status": "NotSigned"
+  }
+]
