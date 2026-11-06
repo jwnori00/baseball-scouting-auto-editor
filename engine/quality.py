@@ -7,7 +7,13 @@ from .video import probe
 
 def review(project):
     issues, durations = [], {}
-    for source in project.sources:
+    try:
+        project.validate_source()
+    except ValueError as exc:
+        issues.append(str(exc))
+    if not project.source_file:
+        issues.append('원본 영상 하나를 선택하세요')
+    for source in ([project.source_file] if project.source_file else []):
         try:
             durations[source] = float(probe(source)['format']['duration'])
         except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError, StopIteration) as exc:
@@ -37,8 +43,6 @@ def review(project):
                 issues.append(f'중복 구간: 컷 {i+1} / 투구 {q.number}')
     if project.expected_count is not None and len(project.pitches) != project.expected_count:
         issues.append('기대 투구 수와 목록 개수 불일치')
-    if len(project.sources) > 1 and not project.junctions_reviewed:
-        issues.append('원본 파일 연결부의 중복/누락은 수동 검토 필요')
     return {'issues': issues, 'pitch_count': len(project.pitches),
             'expected_count': project.expected_count,
             'completeness_verified': False}

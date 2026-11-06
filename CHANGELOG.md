@@ -1,3 +1,13 @@
+# v0.2.0 — single-video workflow
+
+- Replaced multiple-source registration with one source per project and Korean review labels.
+- Removed source-junction review and cross-source editing; retained same-video cut validation.
+- Default output is player_date_Scouting.mp4 only; individual clips are optional.
+- Kept project roundtrip and engine CSV/MLT export; legacy single-source JSON migrates without changing the original file.
+- Retained portable build and updated frozen EXE acceptance for default/optional outputs.
+- Added a separate CI evidence branch for observing Windows build results over existing Git access.
+- AI detection remains unimplemented; actual Windows build evidence must be checked.
+
 # Portable packaging update
 
 - Added Windows x64 PyInstaller onedir workflow and frozen EXE media acceptance test.

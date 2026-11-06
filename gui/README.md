@@ -1,7 +1,7 @@
-# Desktop GUI
+# 단일 영상 GUI
 
-Run `python -m gui` from the repository root, or `run.bat` on Windows.
-PySide6 handles playback and UI; the independent `engine` modules own project data,
-validation, and rendering. Rendering runs on a QThread with a snapshot of project data.
-The FFmpeg frame fallback decodes a single image without loading the full source.
-See the root README for the editing workflow and known limitations.
+포터블 배포본은 EXE를 더블클릭합니다. 소스 개발 환경에서는 `python -m gui`로 실행합니다.
+원본 영상 하나, 투수 이름, 컷 검수, 최종 MP4 저장에 집중합니다.
+새 원본을 선택할 때 기존 컷 초기화를 확인하며 원본 경로만 바뀌면 재연결할 수 있습니다.
+PySide6는 GUI·재생을, 독립적인 engine 모듈은 프로젝트·검증·렌더링을 담당합니다.
+메타데이터·정지 프레임·검증·렌더링은 작업 스레드에서 처리합니다.

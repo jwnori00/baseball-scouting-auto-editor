@@ -25,6 +25,8 @@ def configure_logging():
 def error_text(exc):
     if isinstance(exc, PermissionError):
         return '파일을 읽거나 저장할 권한이 없습니다. 다른 출력 폴더를 선택하고 파일 사용 여부를 확인하세요.'
+    if isinstance(exc, FileExistsError):
+        return '같은 이름의 출력 파일 또는 클립 폴더가 이미 있습니다. 다른 이름으로 저장하세요.'
     if isinstance(exc, FileNotFoundError):
         return '필요한 파일을 찾을 수 없습니다. 원본 경로를 재연결하거나 포터블 ZIP 전체를 다시 압축 해제하세요.'
     if isinstance(exc, ValueError):

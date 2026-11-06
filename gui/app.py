@@ -19,8 +19,11 @@ from engine.runtime import media_run, tool
 from .diagnostics import configure_logging, error_text
 from engine.project import Project, Pitch, STATUSES, RULES
 from engine.video import probe
-from engine.render import render
+from engine.render import render, output_name
 from engine.quality import review
+
+
+STATUS_LABELS = dict(zip(STATUSES, ('자동 후보 (미검증)', '검수 완료', '검수 필요', '원본 확인 필요')))
 
 
 class RenderWorker(QThread):
@@ -28,13 +31,14 @@ class RenderWorker(QThread):
     completed = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, project, destination):
+    def __init__(self, project, destination, keep_clips=False):
         super().__init__()
         self.project, self.destination = deepcopy(project), destination
+        self.keep_clips = keep_clips
 
     def run(self):
         try:
-            self.completed.emit(str(render(self.project, self.destination, self.progress.emit)))
+            self.completed.emit(str(render(self.project, self.destination, self.progress.emit, keep_clips=self.keep_clips)))
         except Exception as exc:
             logging.exception('Rendering failed')
             self.failed.emit(error_text(exc))
@@ -59,8 +63,8 @@ class Task(QThread):
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Baseball Scouting Auto Editor v0.1.0')
-        self.resize(1280, 820)
+        self.setWindowTitle('Baseball Scouting Auto Editor v0.2.0 — 단일 영상 편집')
+        self.resize(1180, 820)
         self.project = Project()
         self.metadata = {}
         self.source = None
@@ -78,26 +82,21 @@ class Window(QMainWindow):
         self.setCentralWidget(body)
         layout = QVBoxLayout(body)
         header = QHBoxLayout()
-        self.title = QLineEdit(self.project.name)
         self.player_name = QLineEdit(self.project.player)
         self.date = QLineEdit(self.project.game_date)
-        for label, widget in [('프로젝트', self.title), ('선수', self.player_name), ('날짜', self.date)]:
+        for label, widget in [('대상 투수 이름', self.player_name), ('경기 날짜', self.date)]:
             header.addWidget(QLabel(label)); header.addWidget(widget)
             widget.textEdited.connect(self.mark_dirty)
         layout.addLayout(header)
         splitter = QSplitter()
         layout.addWidget(splitter, 1)
-        left = QWidget(); ll = QVBoxLayout(left)
-        ll.addWidget(QLabel('원본 목록 — 각 파일 시간은 독립적'))
-        self.sources = QListWidget(); ll.addWidget(self.sources)
-        self.button(ll, '로컬 영상 추가', self.add_source)
-        self.button(ll, '선택 원본 경로 재연결', self.relink)
-        self.junctions = QCheckBox('파일 연결부 중복·누락 수동 확인')
-        self.junctions.toggled.connect(self.mark_dirty)
-        ll.addWidget(self.junctions)
-        self.source_info = QLabel('Part 1을 먼저 선택하세요'); self.source_info.setWordWrap(True)
-        ll.addWidget(self.source_info)
-        splitter.addWidget(left)
+        file_row = QHBoxLayout()
+        self.button(file_row, '1. 원본 영상 선택', self.choose_source)
+        self.source_info = QLabel('선택한 원본 영상이 없습니다')
+        self.source_info.setWordWrap(True)
+        file_row.addWidget(self.source_info, 1)
+        self.button(file_row, '원본 경로 재연결', self.relink)
+        layout.insertLayout(1, file_row)
         center = QWidget(); cl = QVBoxLayout(center)
         self.video = QVideoWidget(); cl.addWidget(self.video, 1)
         self.player.setVideoOutput(self.video)
@@ -115,7 +114,9 @@ class Window(QMainWindow):
         self.start = self.time_spin(); self.end = self.time_spin()
         self.inning = QSpinBox(); self.inning.setRange(1, 99)
         self.number = QSpinBox(); self.number.setRange(1, 9999)
-        self.status = QComboBox(); self.status.addItems(STATUSES); self.status.setCurrentText('REVIEW_REQUIRED')
+        self.status = QComboBox()
+        for value, label in STATUS_LABELS.items(): self.status.addItem(label, value)
+        self.status.setCurrentIndex(self.status.findData('REVIEW_REQUIRED'))
         self.rule = QComboBox(); self.rule.addItems(RULES)
         self.notes = QLineEdit()
         self.expected = QSpinBox(); self.expected.setRange(0, 9999); self.expected.setSpecialValueText('미확인')
@@ -125,27 +126,28 @@ class Window(QMainWindow):
             form.addRow(label, widget)
         for label, action in [('현재 위치 → 시작', lambda: self.start.setValue(self.position())),
                               ('현재 위치 → 종료', lambda: self.end.setValue(self.position())),
-                              ('컷 추가', self.add_pitch), ('선택 컷 수정 적용', self.update_pitch),
-                              ('선택 컷 삭제', self.delete_pitch), ('선택 컷 미리보기', self.preview),
-                              ('자동 탐색 안내', self.detection_info)]:
+                              ('투구 추가', self.add_pitch), ('선택 투구 수정 적용', self.update_pitch),
+                              ('선택 투구 삭제', self.delete_pitch), ('투구 구간 미리보기', self.preview),
+                              ('자동 탐색 (준비 중)', self.detection_info)]:
             self.button(form, label, action)
         form.addRow(QLabel('일반: 세트/와인드업 시작 → 포수 반환까지\n인플레이·폭투: 실제 플레이 종료까지\n리플레이를 별도 투구로 추가하지 마세요.'))
         splitter.addWidget(right)
-        splitter.setSizes([230, 650, 330])
+        splitter.setSizes([820, 340])
         self.pitches = QListWidget(); layout.addWidget(self.pitches)
         ordering = QHBoxLayout(); layout.addLayout(ordering)
         self.button(ordering, '선택 컷 위로', lambda: self.move(-1))
         self.button(ordering, '선택 컷 아래로', lambda: self.move(1))
         tools = QHBoxLayout(); layout.addLayout(tools)
         for label, action in [('프로젝트 저장', self.save), ('프로젝트 불러오기', self.load),
-                              ('검증 보고서', self.report), ('영상 출력', self.export)]:
+                              ('검증 보고서', self.report), ('최종 MP4 저장', self.export)]:
             self.button(tools, label, action)
+        self.keep_clips = QCheckBox('투구별 MP4도 저장')
+        tools.addWidget(self.keep_clips)
         self.progress = QProgressBar(); tools.addWidget(self.progress)
         self.player.positionChanged.connect(self.position_changed)
         self.player.durationChanged.connect(lambda ms: self.slider.setMaximum(ms))
         self.player.errorOccurred.connect(self.playback_error)
         self.slider.sliderMoved.connect(self.seek)
-        self.sources.currentRowChanged.connect(self.select_source)
         self.pitches.currentRowChanged.connect(self.select_pitch)
         self.expected.valueChanged.connect(self.mark_dirty)
 
@@ -171,38 +173,49 @@ class Window(QMainWindow):
             logging.exception('User operation failed')
             QMessageBox.critical(self, '오류', error_text(exc))
 
-    def add_source(self):
-        path, _ = QFileDialog.getOpenFileName(self, 'Part 1 또는 추가 원본 선택', '', 'Video (*.mp4 *.mkv *.mov *.avi *.ts);;All files (*)')
-        if path:
-            path = str(Path(path).resolve())
-            if path not in self.project.sources:
-                self.project.sources.append(path); self.sources.addItem(path); self.dirty = True
-                self.junctions.setChecked(False)
-            self.sources.setCurrentRow(self.project.sources.index(path))
-
-    def relink(self):
-        row = self.sources.currentRow()
-        if row < 0: raise ValueError('재연결할 원본을 목록에서 선택하세요')
-        path, _ = QFileDialog.getOpenFileName(self, '대체 원본 경로 선택')
+    def choose_source(self):
+        if self.tasks: raise ValueError('영상 분석이 끝난 뒤 원본을 선택하세요')
+        path, _ = QFileDialog.getOpenFileName(self, '원본 영상 하나 선택', '', '영상 (*.mp4 *.mkv *.mov *.avi *.ts);;모든 파일 (*)')
         if not path: return
         path = str(Path(path).resolve())
-        self.task(lambda: probe(path), lambda metadata: self.finish_relink(row, path, metadata))
+        if path == self.project.source_file:
+            self.request_source(path)
+            return
+        if (self.project.pitches or self.dirty) and QMessageBox.question(
+                self, '새 영상 작업', '다른 원본을 선택하면 현재 컷 목록이 초기화됩니다. 저장한 프로젝트 파일은 유지됩니다. 계속하시겠습니까?') != QMessageBox.Yes:
+            return
+        self.task(lambda: probe(path), lambda metadata: self.begin_source(path, metadata))
 
-    def finish_relink(self, row, path, metadata):
-        old = self.project.sources[row]
-        if path in self.project.sources and path != old: raise ValueError('이미 등록된 원본입니다')
-        self.project.sources[row] = path
-        self.metadata[path] = metadata
-        for p in self.project.pitches:
-            if p.source_file == old:
-                p.source_file = path
-                p.status = 'REVIEW_REQUIRED'
-        self.sources.item(row).setText(path)
-        self.request_source(path); self.refresh(); self.dirty = True
+    def begin_source(self, path, metadata):
+        if not any(stream.get('codec_type') == 'video' for stream in metadata['streams']):
+            raise ValueError('선택한 파일에 영상 스트림이 없습니다')
+        self.sync()
+        self.project = Project(source_file=path, player=self.project.player, game_date=self.project.game_date)
+        self.metadata = {path: metadata}
+        self.open_source(path)
+        self.refresh()
+        self.start.setValue(0); self.end.setValue(0); self.number.setValue(1)
+        self.status.setCurrentIndex(self.status.findData('REVIEW_REQUIRED'))
+        self.expected.setValue(0)
+        self.dirty = True
 
-    def select_source(self, row):
-        if row < 0: return
-        self.request_source(self.project.sources[row])
+    def relink(self):
+        if self.tasks: raise ValueError('영상 분석이 끝난 뒤 재연결하세요')
+        if not self.project.source_file: raise ValueError('원본 영상을 먼저 선택하세요')
+        path, _ = QFileDialog.getOpenFileName(self, '같은 원본의 새 경로 선택')
+        if not path: return
+        path = str(Path(path).resolve())
+        self.task(lambda: probe(path), lambda metadata: self.finish_relink(path, metadata))
+
+    def finish_relink(self, path, metadata):
+        if not any(stream.get('codec_type') == 'video' for stream in metadata['streams']):
+            raise ValueError('선택한 파일에 영상 스트림이 없습니다')
+        self.project.source_file = path
+        self.metadata = {path: metadata}
+        for pitch in self.project.pitches:
+            pitch.source_file = path
+            pitch.status = 'REVIEW_REQUIRED'
+        self.open_source(path); self.refresh(); self.dirty = True
 
     def task(self, operation, completed):
         worker = Task(operation)
@@ -225,6 +238,8 @@ class Window(QMainWindow):
         self.task(lambda: self.metadata.get(source) or probe(source), ready)
 
     def open_source(self, source):
+        if self.project.pitches and self.project.source_file != source:
+            raise ValueError('다른 원본을 사용하려면 새 영상 작업을 시작하세요')
         metadata = self.metadata.get(source) or probe(source)
         self.metadata[source] = metadata
         stream = next(s for s in metadata['streams'] if s['codec_type'] == 'video')
@@ -234,13 +249,14 @@ class Window(QMainWindow):
             self.fps = 30
         if self.fps <= 0: self.fps = 30
         self.source = source
+        self.project.source_file = source
         self.frame_request += 1
         self.preview_end = None
         self.player.pause()
         self.player.setSource(QUrl.fromLocalFile(source))
         self.video.show(); self.frame_image.hide()
         self.slider.setRange(0, round(float(metadata['format']['duration']) * 1000))
-        self.source_info.setText(f'{Path(source).name}\n{stream["width"]}×{stream["height"]}\n{self.fps:.3f} fps\n{metadata["format"]["duration"]} s')
+        self.source_info.setText(f'{source}\n{stream["width"]}×{stream["height"]} · {self.fps:.3f} fps · {metadata["format"]["duration"]}초')
         self.start.setSingleStep(1/self.fps); self.end.setSingleStep(1/self.fps)
 
     def position(self):
@@ -295,7 +311,7 @@ class Window(QMainWindow):
         duration = float(self.metadata[self.source]['format']['duration'])
         if self.end.value() > duration: raise ValueError('원본 길이를 초과했습니다')
         return Pitch(self.source, self.start.value(), self.end.value(), self.inning.value(), self.number.value(),
-                     self.status.currentText(), self.rule.currentText(), self.notes.text())
+                     self.status.currentData(), self.rule.currentText(), self.notes.text())
 
     def add_pitch(self):
         self.project.pitches.append(self.current_pitch()); self.refresh(); self.dirty = True
@@ -319,16 +335,14 @@ class Window(QMainWindow):
     def refresh(self):
         self.pitches.clear()
         for p in self.project.pitches:
-            self.pitches.addItem(f'이닝 {p.inning:02d} / 투구 {p.number:03d} | {Path(p.source_file).name} | {p.start:.3f}–{p.end:.3f}s | {p.status} | {p.rule}')
+            self.pitches.addItem(f'이닝 {p.inning:02d} / 투구 {p.number:03d} | {p.start:.3f}–{p.end:.3f}s | {STATUS_LABELS[p.status]} | {p.rule}')
 
     def select_pitch(self, row):
         if row < 0: return
         p = self.project.pitches[row]
-        if p.source_file in self.project.sources:
-            self.sources.setCurrentRow(self.project.sources.index(p.source_file))
         self.start.setValue(p.start); self.end.setValue(p.end)
         self.inning.setValue(p.inning); self.number.setValue(p.number)
-        self.status.setCurrentText(p.status); self.rule.setCurrentText(p.rule); self.notes.setText(p.notes)
+        self.status.setCurrentIndex(self.status.findData(p.status)); self.rule.setCurrentText(p.rule); self.notes.setText(p.notes)
 
     def preview(self):
         self.frame_request += 1
@@ -337,15 +351,15 @@ class Window(QMainWindow):
         self.video.show(); self.frame_image.hide(); self.player.play()
 
     def sync(self):
-        self.project.name = self.title.text(); self.project.player = self.player_name.text()
+        self.project.player = self.player_name.text()
         self.project.game_date = self.date.text(); self.project.expected_count = self.expected.value() or None
-        self.project.junctions_reviewed = self.junctions.isChecked()
+        self.project.name = f'{self.project.player} {self.project.game_date}'
 
     def save(self):
         self.sync()
         path, _ = QFileDialog.getSaveFileName(self, '프로젝트 저장', 'timeline.json', 'JSON (*.json)')
         if path:
-            if Path(path).resolve() in [Path(p).resolve() for p in self.project.sources]:
+            if self.project.source_file and Path(path).resolve() == Path(self.project.source_file).resolve():
                 raise ValueError('원본 경로에 저장할 수 없습니다')
             self.project.save(path); self.dirty = False
 
@@ -359,13 +373,15 @@ class Window(QMainWindow):
         if not path: return
         project = Project.load(path)
         self.player.stop(); self.source = None; self.metadata = {}; self.project = project
-        self.title.setText(project.name); self.player_name.setText(project.player); self.date.setText(project.game_date)
-        self.sources.clear(); self.sources.addItems(project.sources)
-        self.expected.setValue(project.expected_count or 0); self.junctions.setChecked(project.junctions_reviewed)
+        self.player_name.setText(project.player); self.date.setText(project.game_date)
+        self.expected.setValue(project.expected_count or 0)
         self.refresh(); self.dirty = False
-        missing = [p for p in project.sources if not Path(p).is_file()]
-        if missing:
-            QMessageBox.warning(self, '원본 경로 확인', '원본 경로가 없습니다. 목록 선택 후 원본 경로 재연결 버튼을 사용하세요:\n'+'\n'.join(missing))
+        if project.source_file:
+            self.source_info.setText(project.source_file)
+            if Path(project.source_file).is_file(): self.request_source(project.source_file)
+            else: QMessageBox.warning(self, '원본 경로 확인', '원본을 찾을 수 없습니다. 원본 경로 재연결 버튼으로 같은 영상을 선택하세요.')
+        else:
+            self.source_info.setText('선택한 원본 영상이 없습니다')
 
     def report(self):
         self.sync()
@@ -375,17 +391,17 @@ class Window(QMainWindow):
     def export(self):
         if self.worker and self.worker.isRunning(): raise ValueError('이미 렌더링 중입니다')
         self.sync()
-        destination = QFileDialog.getExistingDirectory(self, '출력 폴더 선택 — 고유 render_ 폴더 생성')
+        destination, _ = QFileDialog.getSaveFileName(self, '최종 MP4 저장', output_name(self.project), 'MP4 영상 (*.mp4)')
         if not destination: return
         self.progress.setValue(0)
-        self.worker = RenderWorker(self.project, destination)
+        self.worker = RenderWorker(self.project, destination, self.keep_clips.isChecked())
         self.worker.progress.connect(self.progress.setValue)
         self.worker.completed.connect(lambda path: QMessageBox.information(self, '출력 완료', path))
         self.worker.failed.connect(lambda message: QMessageBox.critical(self, '렌더링 실패', message))
         self.worker.start()
 
     def detection_info(self):
-        QMessageBox.information(self, '자동 탐색 미구현', 'v0.1.0은 수동 편집 버전입니다. 실제 투구 인식 모델과 정확도는 아직 검증되지 않았습니다. 외부로 영상을 전송하지 않습니다.')
+        QMessageBox.information(self, '자동 탐색 미구현', '현재는 투구 시작·종료를 직접 지정하고 검수하는 버전입니다. 실제 투구 인식 모델과 정확도는 아직 검증되지 않았습니다. 외부로 영상을 전송하지 않습니다.')
 
     def closeEvent(self, event):
         if self.tasks or (self.worker and self.worker.isRunning()):

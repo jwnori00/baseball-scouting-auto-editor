@@ -10,12 +10,12 @@ def test_window_editing(tmp_path):
     app = QApplication.instance() or QApplication([])
     window = Window()
     source = str(tmp_path / 'local.mp4')
-    window.project = Project(sources=[source])
+    window.project = Project(source_file=source)
     window.source = source
     window.metadata[source] = {'format': {'duration': '10'}}
     window.start.setValue(1)
     window.end.setValue(2)
-    window.status.setCurrentText('MANUALLY_CONFIRMED')
+    window.status.setCurrentIndex(window.status.findData('MANUALLY_CONFIRMED'))
     window.add_pitch()
     assert window.project.pitches == [Pitch(source, 1, 2, status='MANUALLY_CONFIRMED')]
     window.pitches.setCurrentRow(0)
@@ -59,3 +59,19 @@ def wait_for_tasks(app, window):
         app.processEvents()
         time.sleep(.01)
     assert not window.tasks
+
+
+def test_changing_source_can_be_cancelled_without_losing_cuts(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    app = QApplication.instance() or QApplication([])
+    window = Window()
+    original = str(tmp_path / 'part1.mp4')
+    project = Project(source_file=original, pitches=[Pitch(original, 1, 2)])
+    window.project = project
+    monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(tmp_path / 'part2.mp4'), ''))
+    monkeypatch.setattr(QMessageBox, 'question', lambda *args: QMessageBox.No)
+    window.choose_source()
+    assert window.project is project and len(window.project.pitches) == 1
+    assert not hasattr(window, 'sources') and not hasattr(window, 'junctions')
+    assert not window.keep_clips.isChecked()
+    window.dirty = False; window.close(); app.processEvents()

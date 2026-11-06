@@ -18,7 +18,7 @@ def main(destination):
         from PySide6.QtWidgets import QApplication
         from engine.runtime import tool, media_run, resource_root
         from engine.project import Project, Pitch
-        from engine.render import render
+        from engine.render import render, output_name
         from gui.app import Window
         from gui.diagnostics import configure_logging
         configure_logging()
@@ -34,9 +34,8 @@ def main(destination):
         window = Window(); window.show(); app.processEvents()
         window.open_source(str(source))
         window.start.setValue(.2); window.end.setValue(1.2)
-        window.status.setCurrentText('MANUALLY_CONFIRMED'); window.add_pitch()
+        window.status.setCurrentIndex(window.status.findData('MANUALLY_CONFIRMED')); window.add_pitch()
         window.start.setValue(1.5); window.end.setValue(2.5); window.add_pitch()
-        window.project.sources = [str(source)]
         saved = destination / '프로젝트 test.json'
         window.project.save(saved)
         project = Project.load(saved)
@@ -47,15 +46,18 @@ def main(destination):
         window.preview()
         loop = QEventLoop(); QTimer.singleShot(1000, loop.quit); loop.exec()
         assert window.player.position() >= 200
-        target = render(project, destination / '출력 폴더')
-        image = media_run(['ffmpeg', '-v', 'error', '-i', target / 'Inning_01_Pitch_001.mp4',
+        target = render(project, destination / '출력 폴더' / output_name(project))
+        assert list(target.parent.iterdir()) == [target]
+        image = media_run(['ffmpeg', '-v', 'error', '-i', target,
                            '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'bmp', '-'],
                           capture_output=True, check=True).stdout
         frame = cv2.imdecode(np.frombuffer(image, dtype=np.uint8), cv2.IMREAD_COLOR)
         assert frame is not None and np.std(frame) > 0
         assert hashlib.sha256(source.read_bytes()).hexdigest() == original_hash
         window.player.stop(); window.dirty = False; window.close(); app.processEvents()
-        report.update(passed=True, output=str(target), gui_opened=True,
+        optional = render(project, destination / '개별 클립 포함' / output_name(project), keep_clips=True)
+        assert len(list(optional.with_name(optional.stem + '_클립').glob('*.mp4'))) == 2
+        report.update(passed=True, single_source=True, final_mp4_only=True, optional_clips=True, output=str(target), gui_opened=True,
                       gui_playback=True, project_roundtrip=True, source_unchanged=True,
                       opencv=cv2.__version__, numpy=np.__version__)
     except Exception:

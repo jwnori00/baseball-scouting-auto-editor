@@ -1,10 +1,12 @@
-"""Render into a new directory; originals are only read."""
+"""Single-source rendering with temporary intermediates and optional clips."""
 from pathlib import Path
 from .runtime import media_run
 from fractions import Fraction
 from datetime import date
 import re
-import unicodedata
+import os
+import shutil
+import logging
 import tempfile
 import xml.etree.ElementTree as ET
 from .video import probe
@@ -18,21 +20,83 @@ def run(args):
         raise RuntimeError(result.stderr[-5000:])
 
 
-def render(project, directory, progress=lambda value: None):
+def output_name(project):
+    """Preserve Korean/Unicode player names while removing Windows filename hazards."""
+    player = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', project.player).strip(' .')
+    player = re.sub(r'\s+', '_', player)
+    if not player:
+        raise ValueError('대상 투수 이름을 입력하세요')
+    try:
+        stamp = date.fromisoformat(project.game_date).strftime('%Y%m%d')
+    except ValueError as exc:
+        raise ValueError('경기 날짜를 YYYY-MM-DD 형식으로 입력하세요') from exc
+    return player + '_' + stamp + '_Scouting.mp4'
+
+
+def publish(source, destination):
+    """Publish without overwriting any existing file, including a concurrent writer."""
+    try:
+        os.link(source, destination)
+    except FileExistsError:
+        raise
+    except OSError:
+        with open(source, 'rb') as reader, open(destination, 'xb') as writer:
+            try:
+                shutil.copyfileobj(reader, writer)
+            except BaseException:
+                writer.close()
+                Path(destination).unlink(missing_ok=True)
+                raise
+
+
+def render(project, destination, progress=lambda value: None, *, keep_clips=False, export_metadata=False):
+    """Default output is one MP4. Intermediate clips are always temporary."""
     report = review(project)
     if report['issues']:
         raise ValueError('검증 문제를 먼저 해결하세요:\n' + '\n'.join(report['issues']))
     if not project.pitches:
         raise ValueError('확정한 투구가 없습니다')
-    directory = Path(directory).resolve()
-    directory.mkdir(parents=True, exist_ok=True)
-    # A unique run folder prevents overwrites, including when source and output folders coincide.
-    target = Path(tempfile.mkdtemp(prefix='render_', dir=directory))
-    atomic_json(target / 'review_report.json', report)
-    slug = unicodedata.normalize('NFKD', project.player).encode('ascii', 'ignore').decode()
-    slug = re.sub(r'[^A-Za-z0-9]+', '_', slug).strip('_') or 'Player'
-    basename = slug + '_' + date.fromisoformat(project.game_date).strftime('%Y%m%d')
-    first = probe(project.pitches[0].source_file)
+    output_name(project)  # Validate player/date before starting expensive encoding.
+    destination = Path(destination).resolve()
+    if destination.suffix.lower() != '.mp4':
+        raise ValueError('출력 파일은 .mp4 확장자를 사용하세요')
+    if destination.exists():
+        raise FileExistsError('출력 파일이 이미 있습니다. 다른 이름을 선택하세요.')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    clips_folder = destination.with_name(destination.stem + '_클립')
+    keep_clips = keep_clips or export_metadata
+    if keep_clips and clips_folder.exists():
+        raise FileExistsError('개별 클립 폴더가 이미 있습니다. 다른 출력 이름을 선택하세요.')
+    with tempfile.TemporaryDirectory(prefix='.scouting-', dir=destination.parent) as temporary:
+        target = Path(temporary)
+        _encode(project, target, progress)
+        full = target / 'merged.mp4'
+        if keep_clips:
+            # Reserve a new folder exclusively; never merge into user files.
+            clips_folder.mkdir()
+            try:
+                for pitch in project.pitches:
+                    filename = f'Inning_{pitch.inning:02d}_Pitch_{pitch.number:03d}.mp4'
+                    publish(target / filename, clips_folder / filename)
+                if export_metadata:
+                    project.save(clips_folder / 'timeline.json')
+                    project.csv(clips_folder / 'timeline.csv')
+                    metadata = probe(full)
+                    video = next(s for s in metadata['streams'] if s['codec_type'] == 'video')
+                    write_mlt([clips_folder / f'Inning_{p.inning:02d}_Pitch_{p.number:03d}.mp4' for p in project.pitches],
+                              clips_folder / 'timeline.mlt', int(video['width']), int(video['height']), video['avg_frame_rate'])
+                    report.update(output_count=len(project.pitches), outputs_verified=True)
+                    atomic_json(clips_folder / 'review_report.json', report)
+            except Exception:
+                logging.exception('Optional clip export failed; final MP4 has not been published')
+                raise
+        publish(full, destination)
+    progress(100)
+    return destination
+
+
+def _encode(project, target, progress):
+    first = probe(project.source_file)
     stream = next(s for s in first['streams'] if s['codec_type'] == 'video')
     height = int(stream['height']) // 2 * 2
     sar = stream.get('sample_aspect_ratio', '1:1').replace(':', '/')
@@ -41,39 +105,28 @@ def render(project, directory, progress=lambda value: None):
     rate = stream.get('avg_frame_rate', '30/1')
     if rate == '0/0': rate = '30/1'
     files = []
-    try:
-        for i, pitch in enumerate(project.pitches):
-            output = target / f'Inning_{pitch.inning:02d}_Pitch_{pitch.number:03d}.mp4'
-            source_meta = probe(pitch.source_file)
-            has_audio = any(s['codec_type'] == 'audio' for s in source_meta['streams'])
-            args = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
-                    '-ss', str(pitch.start), '-i', pitch.source_file]
-            if not has_audio:
-                args += ['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']
-            args += ['-t', str(pitch.end-pitch.start), '-map', '0:v:0', '-map', '0:a:0' if has_audio else '1:a:0',
-                     '-vf', f'scale=trunc(iw*sar/2)*2:ih,setsar=1,scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2',
-                     '-r', rate, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2',
-                     '-movflags', '+faststart', str(output)]
-            run(args)
-            check_output(output, pitch.end-pitch.start)
-            files.append(output)
-            progress(int(90 * (i+1) / len(project.pitches)))
-        listing = target / 'concat.txt'
-        listing.write_text(''.join(f"file '{p.name}'\n" for p in files), encoding='utf-8')
-        full = target / f'{basename}_FULL.mp4'
-        run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-n', '-f', 'concat', '-safe', '1',
-             '-i', str(listing), '-c', 'copy', '-movflags', '+faststart', str(full)])
-        check_output(full, sum(p.end-p.start for p in project.pitches))
-        project.save(target / 'timeline.json')
-        project.csv(target / 'timeline.csv')
-        write_mlt(files, target / f'{basename}.mlt', width, height, rate)
-        report.update(output_count=len(files), outputs_verified=True)
-        atomic_json(target / 'review_report.json', report)
-        progress(100)
-        return target
-    except Exception as exc:
-        atomic_json(target / 'render_error.json', {'error': str(exc), 'complete': False})
-        raise
+    for i, pitch in enumerate(project.pitches):
+        output = target / f'Inning_{pitch.inning:02d}_Pitch_{pitch.number:03d}.mp4'
+        source_meta = first
+        has_audio = any(s['codec_type'] == 'audio' for s in source_meta['streams'])
+        args = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
+                '-ss', str(pitch.start), '-i', pitch.source_file]
+        if not has_audio:
+            args += ['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']
+        args += ['-t', str(pitch.end-pitch.start), '-map', '0:v:0', '-map', '0:a:0' if has_audio else '1:a:0',
+                 '-vf', f'scale=trunc(iw*sar/2)*2:ih,setsar=1,scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2',
+                 '-r', rate, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2',
+                 '-movflags', '+faststart', str(output)]
+        run(args)
+        check_output(output, pitch.end-pitch.start)
+        files.append(output)
+        progress(int(90 * (i+1) / len(project.pitches)))
+    listing = target / 'concat.txt'
+    listing.write_text(''.join(f"file '{p.name}'\n" for p in files), encoding='utf-8')
+    full = target / 'merged.mp4'
+    run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-n', '-f', 'concat', '-safe', '1',
+         '-i', str(listing), '-c', 'copy', '-movflags', '+faststart', str(full)])
+    check_output(full, sum(p.end-p.start for p in project.pitches))
 
 
 def check_output(path, duration):
