@@ -1,6 +1,6 @@
 """Render into a new directory; originals are only read."""
 from pathlib import Path
-import subprocess
+from .runtime import media_run
 from fractions import Fraction
 from datetime import date
 import re
@@ -13,7 +13,7 @@ from .quality import review
 
 
 def run(args):
-    result = subprocess.run(args, capture_output=True, text=True)
+    result = media_run(args, capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr[-5000:])
 

@@ -5,19 +5,33 @@ OpenCV, NumPy, PySide6를 사용합니다. 첫 작업 대상은 LMB **2026-08-18
 경기의 Part 1입니다. 소속팀·등판 이닝·투구 수는 확인되지 않았으며 추정하지 않습니다.
 실제 경기영상은 Windows PC에 보관하고 클라우드나 GitHub에 업로드하지 않습니다.
 
-## Windows 설치 및 실행
+## 일반 사용자: Windows 포터블 실행
 
-1. python.org의 64비트 Python 3.12를 설치합니다(Python Launcher 포함).
-   현재 고정 의존성의 지원 범위는 Python 3.11–3.13이며 3.14 이상은 지원하지 않습니다.
-2. [FFmpeg 공식 다운로드](https://ffmpeg.org/download.html)가 안내하는 Windows 배포본을
-   설치합니다. `ffmpeg.exe`, `ffprobe.exe`가 있는 `bin` 폴더를 PATH에 추가합니다.
-   새 명령 프롬프트에서 `ffmpeg -version`, `ffprobe -version`을 확인합니다.
-   H.264/libx264 및 AAC 인코더가 있는 배포본이 필요합니다.
-3. 저장소 폴더에서 `setup_windows.bat`을 실행합니다. `.venv` 생성과 의존성 설치를 수행합니다.
-4. `run.bat`을 실행하면 GUI가 열립니다. 오류가 나면 창에 표시된 메시지를 확인합니다.
+성공한 [Windows portable 빌드](https://github.com/jwnori00/baseball-scouting-auto-editor/actions/workflows/windows-portable.yml)의
+Artifacts에서 `BaseballScoutingEditor-Windows-x64`를 다운로드합니다.
+Artifact 포장 ZIP 안의 **`BaseballScoutingEditor-Windows-x64.zip`**을 꺼내 전체 압축을 해제하고,
+`BaseballScoutingEditor/BaseballScoutingEditor.exe`를 더블클릭합니다.
 
-Windows에서 배치 파일과 실제 경기영상은 아직 검증하지 않았습니다.
-Linux의 PySide6 비화면 테스트는 Windows 검증을 대체하지 않습니다.
+**Python·FFmpeg·FFprobe·pip·가상환경을 설치할 필요가 없습니다.**
+일반 사용자는 `setup_windows.bat`이나 `run.bat`을 실행하지 않습니다.
+EXE만 복사하지 말고 `_internal`, `licenses`, `corresponding-source` 등 폴더 전체를 함께 보관하세요.
+지원 대상은 Windows 10 22H2 / Windows 11 x64입니다. GitHub Private 저장소의
+Artifact는 해당 저장소 접근 권한이 있는 사용자만 다운로드할 수 있습니다.
+
+포터블 빌드는 Python 런타임·PySide6/Qt 플러그인·OpenCV·NumPy·FFmpeg·FFprobe를 포함합니다.
+내장 도구를 절대경로로 찾아 실행하므로 Windows PATH에 의존하지 않습니다.
+출력과 프로젝트는 사용자가 선택한 폴더에 저장하고 로그는
+`%LOCALAPPDATA%\BaseballScoutingEditor\logs\application.log`에 저장합니다.
+한글·공백 경로를 지원하며 설치 폴더에 쓰지 않습니다. 로그에는 원본 파일 경로가 포함될 수 있습니다.
+
+배포본은 현재 코드 서명을 설정하지 않았습니다. 실제 서명 상태는 ZIP의
+`signature-report.json`에 기록합니다. SmartScreen 경고가 나올 수 있으므로
+출처·ZIP SHA256과 조직 정책을 확인하세요. 서명 인증서가 있다고 가정하지 않습니다.
+
+Windows Actions는 합성 영상과 실제 frozen EXE로 검증하도록 구성되어 있습니다.
+**워크플로우 파일이 존재하는 것과 빌드 성공은 다릅니다.** 다운로드 전 해당 실행의 성공 상태와
+`Windows-build-evidence/portable-test-report.json`을 확인하세요. 실제 사용자 Windows PC,
+실제 LMB 영상 및 Shotcut에서 검증했다는 의미는 아닙니다.
 
 ## Part 1에서 투구 3~5개 시험 편집
 
@@ -64,6 +78,12 @@ MLT는 **같은 폴더의 개별 MP4를 상대경로로 참조**합니다. 이�
 복사하고, 경로가 끊기면 Shotcut에서 재연결하세요. 실제 Shotcut에서 열기·재생은
 검증하지 않았습니다. XML/OTIO와 iMovie 전용 프로젝트 출력은 지원하지 않습니다.
 
+## 개발자용 소스 실행
+
+포터블 사용자는 이 단계를 건너뜁니다. 소스 개발자는 Python 3.12와 FFmpeg/FFprobe가 필요합니다.
+Windows에서는 FFmpeg bin을 PATH에 추가한 뒤 `setup_windows.bat`, `run.bat`을 사용할 수 있습니다.
+고정 의존성은 Python 3.11–3.13 대상입니다.
+
 ## 개발 및 테스트
 
 ```bash
@@ -101,8 +121,48 @@ PHASE 1의 반자동 편집을 구현하고 PHASE 2의 기본 검증·내보내�
 외부로 영상을 보내는 기능은 없습니다.
 
 시간은 초 단위로 저장합니다. 기본 프레임 이동은 평균 FPS 기준이며 VFR·방송 코덱의
-정확한 프레임 경계는 실제 Windows 원본으로 추가 검증해야 합니다. FFmpeg 정지 화면
-추출은 GUI에서 동기로 수행해 복잡한 코덱에서는 잠시 대기할 수 있습니다. 렌더 취소,
+정확한 프레임 경계는 실제 Windows 원본으로 추가 검증해야 합니다. 메타데이터·FFmpeg 정지 프레임·검증 보고서·렌더링은 백그라운드 스레드에서 처리합니다. 렌더 취소,
 상세 프레임 진행률, 프로젝트 자동 저장, 자동 누락/파일 간 동일 투구 인식은 미구현입니다.
 공식 투구 기록 자동 조회도 없습니다. 개수가 일치해도 모든 투구 수집을 보장하지 않으며
 보고서의 `completeness_verified`는 항상 false입니다.
+
+
+## Windows 빌드·검증·재배포
+
+`.github/workflows/windows-portable.yml`은 main 푸시·Pull Request·수동 실행 시
+`windows-latest`에서 Python 3.12 x64, MSYS2 도구를 준비합니다. FFmpeg n7.1.3 및 x264의
+고정 커밋에서 GPL Windows 실행 파일을 빌드하고 실제 libx264/AAC 인코딩을 검사합니다.
+대응 소스가 누락된 사전 빌드 대신 공식 소스 기반 빌드를 선택했습니다.
+PyInstaller 6.16.0 onedir로 `BaseballScoutingEditor.exe`를 생성합니다.
+
+검증은 DLL·Qt Windows 플러그인·서명 상태 확인, 기존 편집 테스트, frozen EXE 자체검증을 포함합니다.
+EXE 자체검증은 Python/FFmpeg를 PATH에서 제거하고 한글·공백이 있는 설치/작업 경로에서 실행합니다.
+설치 폴더의 쓰기를 ACL로 차단한 상태에서 GUI 표시·재생·정지 프레임·프로젝트 저장/복원·개별 추출·병합·
+OpenCV 디코딩과 원본 해시 보존을 확인합니다. 설치 폴더 파일이 변경되지 않았는지도 검사합니다.
+이는 개발 도구가 사전 설치된 GitHub 호스팅 Windows runner의 테스트이며 완전히 깨끗한 사용자 PC 검증은 아닙니다.
+
+성공한 실행은 다음 Artifact를 제공합니다.
+
+- `BaseballScoutingEditor-Windows-x64`: 최종 ZIP 및 SHA256 파일
+- `Windows-build-evidence`: EXE 테스트·서명 보고서·로그·FFmpeg 빌드 정보
+- `ThirdPartyCorrespondingSources`: Qt/PySide와 Qt의 별도 FFmpeg DLL이 있다면 그 대응 소스
+
+FFmpeg/x264 소스·빌드 스크립트와 라이선스는 포터블 ZIP에도 동봉합니다.
+Qt/PySide 라이선스 본문은 공식 대응 소스에서 수집합니다. LGPL 라이브러리는 DLL 교체가 가능하도록
+동적 배포하며 수정 디버깅을 위한 역공학을 해당 라이선스가 허용하는 범위에서 제한하지 않습니다.
+재배포할 때에는 포터블 ZIP과 `ThirdPartyCorrespondingSources`를 같은 다운로드 위치에 제공하고
+고지·소스·라이선스 자료를 유지하세요. 자세한 내용은 `packaging/THIRD_PARTY_NOTICES.md`를 확인하세요.
+
+Private 저장소에서 `v*` 태그를 푸시하면 빌드 성공 후 ZIP과 대응 소스가 첨부된 **초안 릴리스**를 생성합니다.
+저장소 공개 설정은 변경하지 않으며, 공개 저장소에서는 이 릴리스 작업을 실행하지 않습니다.
+태그·릴리스는 자동으로 지금 생성하지 않습니다.
+
+수동 빌드 담당자는 워크플로우와 동일한 Windows/MSYS2 환경에서
+`bash packaging/build_ffmpeg.sh`, `python packaging/fetch_qt_sources.py`,
+`python -m PyInstaller --noconfirm --clean BaseballScoutingEditor.spec`,
+`python packaging/collect_notices.py`, `./packaging/test_portable.ps1` 순서로 실행합니다.
+빌드 의존성은 `requirements-build.txt`입니다.
+
+초기 배포는 onedir입니다. onefile은 Qt/DLL 임시 추출 시간, 백신 오탐, 임시 폴더 권한과
+대용량 번들 비용이 있어 이번 버전에서 제공하거나 검증하지 않았습니다.
+자동 투구 인식은 여전히 미구현이며 향후 실제 정답 투구 구간으로 정확도를 검증해야 합니다.

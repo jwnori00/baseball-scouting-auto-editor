@@ -2,11 +2,11 @@
 import json
 import math
 from pathlib import Path
-import subprocess
+from .runtime import media_run
 
 
 def probe(source):
-    result = subprocess.run(
+    result = media_run(
         ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(source)],
         check=True, capture_output=True, text=True,
     )
@@ -21,7 +21,7 @@ def clip(source, destination, start, duration):
         raise ValueError("source and destination must differ")
     if Path(destination).exists():
         raise FileExistsError(destination)
-    subprocess.run(
+    media_run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
          "-ss", str(start), "-i", str(source), "-t", str(duration),
          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(destination)],

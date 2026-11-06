@@ -40,11 +40,22 @@ def test_preview_real_frame(tmp_path):
     window.open_source(str(source))
     window.seek(400)
     window.show_frame()
+    wait_for_tasks(app, window)
     assert not window.frame_image.pixmap().isNull()
     window.step(1)
+    wait_for_tasks(app, window)
     assert window.position() == .44
     window.start.setValue(.2); window.end.setValue(.6)
     window.preview()
     loop = QEventLoop(); QTimer.singleShot(1200, loop.quit); loop.exec()
     assert window.player.position() >= 200
     window.player.stop(); window.dirty = False; window.close(); app.processEvents()
+
+
+def wait_for_tasks(app, window):
+    import time
+    deadline = time.monotonic() + 10
+    while window.tasks and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(.01)
+    assert not window.tasks

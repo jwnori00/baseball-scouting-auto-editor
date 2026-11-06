@@ -259,3 +259,7 @@ local_settings.json
 *.[mM]2[tT][sS]
 *.[wW][eE][bB][mM]
 *.[tT][sS]
+/vendor/
+!/BaseballScoutingEditor.spec
+/build-evidence/
+/BaseballScoutingEditor-Windows-x64.zip*

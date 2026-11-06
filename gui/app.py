@@ -1,5 +1,6 @@
 """PySide6 desktop editor with native playback and FFmpeg frame fallback."""
 import json
+import logging
 import subprocess
 import sys
 from copy import deepcopy
@@ -14,6 +15,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QVideoWidget
 
+from engine.runtime import media_run, tool
+from .diagnostics import configure_logging, error_text
 from engine.project import Project, Pitch, STATUSES, RULES
 from engine.video import probe
 from engine.render import render
@@ -33,7 +36,24 @@ class RenderWorker(QThread):
         try:
             self.completed.emit(str(render(self.project, self.destination, self.progress.emit)))
         except Exception as exc:
-            self.failed.emit(str(exc))
+            logging.exception('Rendering failed')
+            self.failed.emit(error_text(exc))
+
+
+class Task(QThread):
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, operation):
+        super().__init__()
+        self.operation = operation
+
+    def run(self):
+        try:
+            self.completed.emit(self.operation())
+        except Exception as exc:
+            logging.exception('Background media operation failed')
+            self.failed.emit(error_text(exc))
 
 
 class Window(QMainWindow):
@@ -48,6 +68,9 @@ class Window(QMainWindow):
         self.preview_end = None
         self.dirty = False
         self.worker = None
+        self.tasks = []
+        self.source_request = 0
+        self.frame_request = 0
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
         self.player.setAudioOutput(self.audio)
@@ -145,14 +168,14 @@ class Window(QMainWindow):
         try:
             action()
         except Exception as exc:
-            QMessageBox.critical(self, '오류', str(exc))
+            logging.exception('User operation failed')
+            QMessageBox.critical(self, '오류', error_text(exc))
 
     def add_source(self):
         path, _ = QFileDialog.getOpenFileName(self, 'Part 1 또는 추가 원본 선택', '', 'Video (*.mp4 *.mkv *.mov *.avi *.ts);;All files (*)')
         if path:
             path = str(Path(path).resolve())
             if path not in self.project.sources:
-                self.metadata[path] = probe(path)
                 self.project.sources.append(path); self.sources.addItem(path); self.dirty = True
                 self.junctions.setChecked(False)
             self.sources.setCurrentRow(self.project.sources.index(path))
@@ -163,7 +186,9 @@ class Window(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, '대체 원본 경로 선택')
         if not path: return
         path = str(Path(path).resolve())
-        metadata = probe(path)
+        self.task(lambda: probe(path), lambda metadata: self.finish_relink(row, path, metadata))
+
+    def finish_relink(self, row, path, metadata):
         old = self.project.sources[row]
         if path in self.project.sources and path != old: raise ValueError('이미 등록된 원본입니다')
         self.project.sources[row] = path
@@ -173,11 +198,31 @@ class Window(QMainWindow):
                 p.source_file = path
                 p.status = 'REVIEW_REQUIRED'
         self.sources.item(row).setText(path)
-        self.open_source(path); self.refresh(); self.dirty = True
+        self.request_source(path); self.refresh(); self.dirty = True
 
     def select_source(self, row):
         if row < 0: return
-        self.guard(lambda: self.open_source(self.project.sources[row]))
+        self.request_source(self.project.sources[row])
+
+    def task(self, operation, completed):
+        worker = Task(operation)
+        self.tasks.append(worker)
+        worker.completed.connect(lambda result: self.guard(lambda: completed(result)))
+        worker.failed.connect(lambda message: QMessageBox.critical(self, '영상 처리 오류', message))
+        worker.finished.connect(lambda: self.tasks.remove(worker))
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def request_source(self, source):
+        self.source_request += 1
+        self.source = None
+        request = self.source_request
+        self.player.pause()
+        def ready(metadata):
+            if request != self.source_request: return
+            self.metadata[source] = metadata
+            self.open_source(source)
+        self.task(lambda: self.metadata.get(source) or probe(source), ready)
 
     def open_source(self, source):
         metadata = self.metadata.get(source) or probe(source)
@@ -189,6 +234,7 @@ class Window(QMainWindow):
             self.fps = 30
         if self.fps <= 0: self.fps = 30
         self.source = source
+        self.frame_request += 1
         self.preview_end = None
         self.player.pause()
         self.player.setSource(QUrl.fromLocalFile(source))
@@ -211,6 +257,7 @@ class Window(QMainWindow):
         self.clock.setText(f'{ms/1000:.3f} s')
 
     def play(self):
+        self.frame_request += 1
         if not self.source: raise ValueError('원본 영상을 먼저 선택하세요')
         self.video.show(); self.frame_image.hide()
         if self.player.playbackState() == QMediaPlayer.PlayingState: self.player.pause()
@@ -225,12 +272,19 @@ class Window(QMainWindow):
     def show_frame(self):
         if not self.source: raise ValueError('원본 영상을 먼저 선택하세요')
         self.player.pause()
-        result = subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-ss', str(self.position()),
-            '-i', self.source, '-frames:v', '1', '-vf', 'scale=800:-1', '-f', 'image2pipe', '-vcodec', 'png', '-'],
-            capture_output=True, timeout=30, check=True)
-        image = QImage.fromData(result.stdout)
-        if image.isNull(): raise ValueError('이 위치에서 프레임을 디코딩할 수 없습니다')
-        self.frame_image.setPixmap(QPixmap.fromImage(image)); self.frame_image.show(); self.video.hide()
+        source, position = self.source, self.position()
+        self.frame_request += 1
+        request = self.frame_request
+        def decode():
+            return media_run(['ffmpeg', '-v', 'error', '-nostdin', '-ss', str(position),
+                '-i', source, '-frames:v', '1', '-vf', 'scale=800:-1', '-f', 'image2pipe', '-vcodec', 'png', '-'],
+                capture_output=True, timeout=30, check=True).stdout
+        def ready(data):
+            if request != self.frame_request or source != self.source: return
+            image = QImage.fromData(data)
+            if image.isNull(): raise ValueError('이 위치에서 프레임을 디코딩할 수 없습니다')
+            self.frame_image.setPixmap(QPixmap.fromImage(image)); self.frame_image.show(); self.video.hide()
+        self.task(decode, ready)
 
     def playback_error(self, error, message):
         self.statusBar().showMessage(f'재생 오류: {message}. FFmpeg 프레임 버튼을 사용하세요.')
@@ -277,6 +331,7 @@ class Window(QMainWindow):
         self.status.setCurrentText(p.status); self.rule.setCurrentText(p.rule); self.notes.setText(p.notes)
 
     def preview(self):
+        self.frame_request += 1
         p = self.current_pitch()
         self.seek(round(p.start * 1000)); self.preview_end = p.end
         self.video.show(); self.frame_image.hide(); self.player.play()
@@ -298,6 +353,7 @@ class Window(QMainWindow):
         return not self.dirty or QMessageBox.question(self, '변경사항', '저장하지 않은 변경사항을 버리시겠습니까?') == QMessageBox.Yes
 
     def load(self):
+        if self.tasks: raise ValueError('영상 분석이 끝난 뒤 프로젝트를 불러오세요')
         if not self.can_discard(): return
         path, _ = QFileDialog.getOpenFileName(self, '프로젝트 불러오기', '', 'JSON (*.json)')
         if not path: return
@@ -313,7 +369,8 @@ class Window(QMainWindow):
 
     def report(self):
         self.sync()
-        QMessageBox.information(self, '검증 보고서 — 완전성 보장 아님', json.dumps(review(self.project), ensure_ascii=False, indent=2))
+        snapshot = deepcopy(self.project)
+        self.task(lambda: review(snapshot), lambda report: QMessageBox.information(self, '검증 보고서 — 완전성 보장 아님', json.dumps(report, ensure_ascii=False, indent=2)))
 
     def export(self):
         if self.worker and self.worker.isRunning(): raise ValueError('이미 렌더링 중입니다')
@@ -331,16 +388,22 @@ class Window(QMainWindow):
         QMessageBox.information(self, '자동 탐색 미구현', 'v0.1.0은 수동 편집 버전입니다. 실제 투구 인식 모델과 정확도는 아직 검증되지 않았습니다. 외부로 영상을 전송하지 않습니다.')
 
     def closeEvent(self, event):
-        if self.worker and self.worker.isRunning():
-            QMessageBox.warning(self, '렌더링 중', '원본 보호를 위해 렌더링이 끝난 뒤 종료하세요.'); event.ignore(); return
+        if self.tasks or (self.worker and self.worker.isRunning()):
+            QMessageBox.warning(self, '렌더링 중', '영상 처리가 끝난 뒤 종료하세요.'); event.ignore(); return
         if self.can_discard(): self.player.stop(); event.accept()
         else: event.ignore()
 
 
 def main():
-    import shutil
+    log_path = configure_logging()
     app = QApplication(sys.argv)
-    if any(shutil.which(name) is None for name in ('ffmpeg', 'ffprobe')):
-        QMessageBox.critical(None, 'FFmpeg 필요', 'FFmpeg와 FFprobe를 설치하고 bin 폴더를 PATH에 추가하세요.'); return 1
-    window = Window(); window.show()
+    try:
+        tool('ffmpeg'); tool('ffprobe')
+    except FileNotFoundError as exc:
+        logging.exception('Bundled tools unavailable')
+        QMessageBox.critical(None, '포터블 파일 확인', str(exc))
+        return 1
+    window = Window()
+    window.statusBar().showMessage(f'로그: {log_path}')
+    window.show()
     return app.exec()

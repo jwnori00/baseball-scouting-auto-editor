@@ -1,3 +1,12 @@
+# Portable packaging update
+
+- Added Windows x64 PyInstaller onedir workflow and frozen EXE media acceptance test.
+- Added bundled absolute tool paths, Unicode-safe subprocesses and per-user rotating logs.
+- Moved metadata, frame fallback and review operations off the GUI thread.
+- Added pinned FFmpeg/x264 source build, corresponding sources, Qt/PySide notices, signature reporting and ZIP checksums.
+- Added private tagged draft-release support. AI detection remains unimplemented.
+- Windows build and artifact status must be verified from the actual Actions run.
+
 # v0.1.0
 
 - Added PySide6 desktop timeline editor, native playback and FFmpeg frame fallback.
