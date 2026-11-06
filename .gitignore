@@ -218,3 +218,44 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local source footage, generated clips, and analysis outputs
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.mxf
+*.mts
+*.m2ts
+*.webm
+*.MP4
+*.MOV
+/data/
+/videos/
+/output/
+/outputs/
+/input/
+/temp/
+/render_*/
+*.tmp
+local_config.json
+*.ts
+
+# Local secrets and private configuration
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+local_settings.json
+# Case-insensitive media extensions
+*.[mM][pP]4
+*.[mM][kK][vV]
+*.[mM][oO][vV]
+*.[aA][vV][iI]
+*.[mM][xX][fF]
+*.[mM][tT][sS]
+*.[mM]2[tT][sS]
+*.[wW][eE][bB][mM]
+*.[tT][sS]
