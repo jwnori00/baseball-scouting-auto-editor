@@ -17,7 +17,8 @@
 Python·FFmpeg·FFprobe·pip·가상환경 설치가 필요 없습니다. `setup_windows.bat`이나
 `run.bat`은 일반 사용자용 실행 절차가 아닙니다. EXE만 복사하지 말고 `_internal`, `licenses`,
 `corresponding-source`를 포함한 폴더 전체를 유지하세요. 지원 대상은 Windows 10 22H2 / Windows 11 x64입니다.
-Private 저장소의 다운로드에는 저장소 접근 권한이 필요합니다.
+현재 저장소는 공개 소스로 제공됩니다. 저장소를 Private으로 변경하면 다운로드에 저장소 접근 권한이 필요합니다.
+공개 전환 전에 한도로 시작되지 못한 Actions 실행은 전환 후 새로 실행해야 합니다.
 
 워크플로우가 존재하는 것과 Windows 빌드 성공은 다릅니다. 해당 실행의 성공 상태와
 `Windows-build-evidence` 보고서를 확인하세요. 아직 확인하지 못한 EXE·실제 사용자 PC의 실행을
