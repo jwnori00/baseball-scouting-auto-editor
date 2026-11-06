@@ -18,6 +18,7 @@ for project in ffmpeg x264; do
         revision="$X264_COMMIT"
     fi
     git init "$root/build/media/$project"
+    git -C "$root/build/media/$project" config core.autocrlf false
     current_remote=$(git -C "$root/build/media/$project" config --get remote.origin.url || true)
     if [[ -z "$current_remote" ]]; then
         git -C "$root/build/media/$project" remote add origin "$remote"
