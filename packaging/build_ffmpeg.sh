@@ -18,7 +18,15 @@ for project in ffmpeg x264; do
         revision="$X264_COMMIT"
     fi
     git init "$root/build/media/$project"
-    git -C "$root/build/media/$project" remote add origin "$remote"
+    current_remote=$(git -C "$root/build/media/$project" config --get remote.origin.url || true)
+    if [[ -z "$current_remote" ]]; then
+        git -C "$root/build/media/$project" remote add origin "$remote"
+    elif [[ "$current_remote" != "$remote" ]]; then
+        echo "Unexpected existing source remote for $project; preserving checkout" >&2
+        exit 1
+    fi
+    git -C "$root/build/media/$project" diff --quiet
+    git -C "$root/build/media/$project" diff --cached --quiet
     git -C "$root/build/media/$project" fetch --depth 1 origin "$revision"
     git -C "$root/build/media/$project" checkout --detach FETCH_HEAD
     test "$(git -C "$root/build/media/$project" rev-parse HEAD)" = "$revision"

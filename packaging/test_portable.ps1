@@ -1,6 +1,8 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $original = Join-Path $pwd 'dist/BaseballScoutingEditor'
-$unicodeRoot = Join-Path $env:RUNNER_TEMP '한글 배포 프로그램'
+$temporaryRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
+$sessionId = [guid]::NewGuid().ToString('N')
+$unicodeRoot = Join-Path $temporaryRoot ('한글 배포 프로그램_' + $sessionId)
 New-Item -ItemType Directory -Force $unicodeRoot | Out-Null
 Copy-Item $original $unicodeRoot -Recurse -Force
 $package = Join-Path $unicodeRoot 'BaseballScoutingEditor'
@@ -21,7 +23,7 @@ $signatures | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $package 's
 Copy-Item (Join-Path $package 'signature-report.json') $evidence
 Copy-Item (Join-Path $package 'signature-report.json') $original
 # Remove Python/FFmpeg from PATH and execute from an unrelated Unicode working directory.
-$work = Join-Path $env:RUNNER_TEMP '포터블 테스트 공백'
+$work = Join-Path $temporaryRoot ('포터블 테스트 공백_' + $sessionId)
 New-Item -ItemType Directory -Force $work | Out-Null
 $oldPath = $env:PATH
 $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"

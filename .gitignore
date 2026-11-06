@@ -263,3 +263,5 @@ local_settings.json
 !/BaseballScoutingEditor.spec
 /build-evidence/
 /BaseballScoutingEditor-Windows-x64.zip*
+
+.venv-build/

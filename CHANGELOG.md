@@ -5,6 +5,7 @@
 - Default output is player_date_Scouting.mp4 only; individual clips are optional.
 - Kept project roundtrip and engine CSV/MLT export; legacy single-source JSON migrates without changing the original file.
 - Retained portable build and updated frozen EXE acceptance for default/optional outputs.
+- Added a developer-only local Windows build script for Actions quota exhaustion.
 - Added a separate CI evidence branch for observing Windows build results over existing Git access.
 - AI detection remains unimplemented; actual Windows build evidence must be checked.
 

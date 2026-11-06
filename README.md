@@ -50,6 +50,38 @@ Private 저장소의 다운로드에는 저장소 접근 권한이 필요합니�
 이전 0.1.0의 단일 영상 JSON은 메모리에서 변환해 불러오며 원래 파일을 수정하지 않습니다.
 이전 다중 영상 JSON은 안내와 함께 거부하고 원래 파일을 보존합니다. 영상별 프로젝트로 분리해 사용해야 합니다.
 
+## 한도 없이 Windows PC에서 직접 빌드
+
+GitHub Actions의 **Run workflow도 Actions 한도를 사용**합니다. 한도가 소진됐다면 Windows PC에서
+로컬 빌드를 할 수 있습니다. 이 경우 Codex나 GitHub Actions 실행 한도를 사용하지 않습니다.
+
+이 준비는 **프로그램 제작 PC에만** 필요합니다. 완성된 ZIP을 받는 사용자는 설치하지 않습니다.
+
+1. 64비트 Python 3.12(Python Launcher 포함), Git for Windows, [MSYS2](https://www.msys2.org/)를 설치합니다.
+2. MSYS2 MINGW64 터미널에서 `pacman -Syu`로 업데이트합니다. 재시작 안내가 나오면 창을 닫고 다시 열어 완료합니다.
+3. 저장소 최신 소스를 받습니다. 기존 작업 폴더가 있다면 변경사항을 보존하고 최신 main을 반영하세요.
+4. 저장소 폴더에서 PowerShell을 열고 실행합니다:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_windows.ps1
+# MSYS2를 다른 경로에 설치한 경우
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_windows.ps1 -MsysRoot 'D:\msys64'
+```
+
+ExecutionPolicy 옵션은 해당 PowerShell 프로세스에만 적용됩니다. 조직 정책이 이를 금지하면
+정책을 변경하지 말고 관리자에게 승인된 실행 방법을 문의하세요.
+
+스크립트는 빌드 가상환경·의존성·FFmpeg/FFprobe를 준비하고 편집 테스트, PyInstaller 빌드,
+실제 EXE 자체검증을 순서대로 수행합니다. 실패 시 ZIP 생성을 중단합니다.
+처음에는 컴파일러·Qt 대응 소스 등 큰 다운로드와 컴파일이 있으므로 인터넷과 충분한 디스크 여유가 필요합니다.
+기존 ZIP이 있으면 다른 위치에 보관한 후 실행하세요. 덮어쓰지 않습니다.
+
+성공하면 저장소 폴더에 `BaseballScoutingEditor-Windows-x64.zip`과 `.sha256`이 생깁니다.
+`build-evidence/portable-test-report.json`에서 실제 EXE 검사 결과를 확인하세요.
+직접 실행 파일은 `dist/BaseballScoutingEditor/BaseballScoutingEditor.exe`입니다.
+GitHub에 배포할 때는 ZIP 및 체크섬과 `vendor/qt-sources`의 대응 소스를 같은 다운로드 위치에 제공합니다.
+로컬 빌드 스크립트를 제공하는 것과 Windows에서 실제 빌드 성공을 확인한 것은 다릅니다.
+
 ## 편집 규칙과 검증 한계
 
 일반 투구는 세트에서 손을 모으는 순간 또는 와인드업 시작부터 포수의 반환 송구까지 포함합니다.
