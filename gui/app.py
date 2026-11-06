@@ -277,7 +277,7 @@ class Window(QMainWindow):
         request = self.frame_request
         def decode():
             return media_run(['ffmpeg', '-v', 'error', '-nostdin', '-ss', str(position),
-                '-i', source, '-frames:v', '1', '-vf', 'scale=800:-1', '-f', 'image2pipe', '-vcodec', 'png', '-'],
+                '-i', source, '-frames:v', '1', '-vf', 'scale=800:-1', '-f', 'image2pipe', '-vcodec', 'bmp', '-'],
                 capture_output=True, timeout=30, check=True).stdout
         def ready(data):
             if request != self.frame_request or source != self.source: return

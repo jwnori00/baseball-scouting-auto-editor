@@ -15,6 +15,7 @@ licenses = root / 'vendor' / 'qt-licenses'
 sources.mkdir(parents=True, exist_ok=True)
 licenses.mkdir(parents=True, exist_ok=True)
 manifest = []
+license_index = []
 
 
 def fetch(url, filename):
@@ -38,8 +39,10 @@ for archive in (qt, pyside):
     with tarfile.open(archive) as tar:
         for member in tar:
             if member.isfile() and ('/LICENSES/' in member.name or Path(member.name).name.startswith(('LICENSE', 'COPYING'))):
-                relative = Path(*[p for p in Path(member.name).parts if p not in ('..', '.')])
-                destination = licenses / relative
+                identifier = hashlib.sha256(member.name.encode()).hexdigest()[:16]
+                filename = re.sub(r'[^A-Za-z0-9._-]', '_', Path(member.name).name)[:80]
+                destination = licenses / (identifier + '-' + filename)
+                license_index.append({'file': destination.name, 'archive': archive.name, 'source_path': member.name})
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 with tar.extractfile(member) as stream: destination.write_bytes(stream.read())
 # Qt Multimedia's FFmpeg binaries, if present, have their own LGPL source.
@@ -56,4 +59,5 @@ for directory in {p.parent for p in qt_root.rglob('avutil-*.dll')}:
         if not match: raise RuntimeError(f'Qt FFmpeg exact source cannot be identified: {version}')
         release = match.group(1)
         fetch(f'https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n{release}.tar.gz', f'qt-ffmpeg-{release}.tar.gz')
+(licenses / 'license-index.json').write_text(json.dumps(license_index, indent=2), encoding='utf-8')
 (sources / 'source-manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')

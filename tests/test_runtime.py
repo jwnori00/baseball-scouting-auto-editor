@@ -22,6 +22,6 @@ def test_media_run_preserves_unicode_arguments(monkeypatch):
         captured.update(args=args, kwargs=kwargs)
     monkeypatch.setattr(runtime.subprocess, 'run', run)
     runtime.media_run(['ffmpeg', '-i', Path('한글 폴더/원본 경기.mp4')], text=True)
-    assert captured['args'] == ['/bundle/tools/ffmpeg', '-i', '한글 폴더/원본 경기.mp4']
+    assert captured['args'] == ['/bundle/tools/ffmpeg', '-i', str(Path('한글 폴더/원본 경기.mp4'))]
     assert not captured['kwargs'].get('shell')
     assert captured['kwargs']['encoding'] == 'utf-8'

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import platform
 from pathlib import Path
 import sys
 import traceback
@@ -8,7 +9,8 @@ import traceback
 def main(destination):
     destination = Path(destination).resolve()
     destination.mkdir(parents=True, exist_ok=True)
-    report = {'passed': False, 'frozen': bool(getattr(sys, 'frozen', False))}
+    report = {'passed': False, 'frozen': bool(getattr(sys, 'frozen', False)),
+              'platform': platform.platform(), 'python': sys.version}
     try:
         import cv2
         import numpy as np
@@ -47,7 +49,7 @@ def main(destination):
         assert window.player.position() >= 200
         target = render(project, destination / '출력 폴더')
         image = media_run(['ffmpeg', '-v', 'error', '-i', target / 'Inning_01_Pitch_001.mp4',
-                           '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'],
+                           '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'bmp', '-'],
                           capture_output=True, check=True).stdout
         frame = cv2.imdecode(np.frombuffer(image, dtype=np.uint8), cv2.IMREAD_COLOR)
         assert frame is not None and np.std(frame) > 0
